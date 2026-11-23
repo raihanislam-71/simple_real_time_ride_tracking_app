@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
-import 'package:material_ui/material_ui.dart';
 
 void main() {
   runApp(const MyApp());
@@ -13,6 +13,7 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -21,7 +22,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
-        fontFamily: 'SF Pto Text',
+        fontFamily: 'SF Pro Text',
       ),
       home: const HomeScreen(),
     );
@@ -29,7 +30,7 @@ class MyApp extends StatelessWidget {
 }
 
 class HomeScreen extends StatefulWidget {
-  const new({super.key});
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -37,14 +38,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
-  //example locations for start and end points
-  final LatLng _startPoint = LatLng(37.7749, -122.4194);
-  final LatLng _destinationPoint = LatLng(37.7839, -122.4194);
+
+  // Example locations for start and end points (San Francisco)
+  final LatLng _startPoint = const LatLng(37.7749, -122.4194);
+  final LatLng _destinationPoint = const LatLng(37.7839, -122.4194);
 
   List<LatLng> _routePoints = [];
   bool _routeLoaded = false;
 
-  LatLng _vehiclePosition = LatLng(37.7749, -122.4194);
+  LatLng _vehiclePosition = const LatLng(37.7749, -122.4194);
   double _vehicleRotation = 0.0;
   Timer? _timer;
   int _currentRouteIndex = 0;
@@ -52,17 +54,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isFollowingVehicle = true;
   Timer? _followTimer;
 
-  double _constantSpeed = 40.0;
+  final double _constantSpeed = 40.0; // km/h
   double _totalRouteDistance = 0.0;
   double _distanceTraveled = 0.0;
 
-  String _vehicleType = 'Sedan';
-  String _driverName = 'Raihan islam';
-  String _estimatedTime = 'Calculate..';
-  String _distance = 'Calculate..';
-  String _rating = '4.9';
-  String _plateNUmber = 'ABC1234';
-  String _carModel = 'Toyota Camry';
+  final String _vehicleType = 'Sedan';
+  final String _driverName = 'Raihan Islam';
+  String _estimatedTime = 'Calculating...';
+  String _distance = 'Calculating...';
+  final String _rating = '4.9';
+  final String _plateNumber = 'ABC1234';
+  final String _carModel = 'Toyota Camry';
 
   late AnimationController _vehicleAnimationController;
   late AnimationController _bottomSheetController;
@@ -73,24 +75,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.initState();
     _vehicleAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(microseconds: 500),
+      duration: const Duration(milliseconds: 500),
     );
 
     _bottomSheetController = AnimationController(
       vsync: this,
-      duration: Duration(microseconds: 300),
+      duration: const Duration(milliseconds: 300),
     );
 
     _pulseController = AnimationController(
       vsync: this,
-      duration: Duration(seconds: 2),
-    );
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
 
     _bottomSheetController.forward();
-
-    setState(() {
-      _vehiclePosition = _startPoint;
-    });
+    _vehiclePosition = _startPoint;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchRealRoute();
@@ -108,13 +107,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _fetchRealRoute() async {
+    // First, immediately set a fallback route so polyline shows right away
+    _fallBackToSimulatedRoute();
+
+    // Then try to fetch real route from OSRM
     try {
       final String url =
-          'https://router.project-osm.org/route/v1/driving/${_startPoint.longitude},${_startPoint.latitude};${_destinationPoint.longitude},${_destinationPoint.latitude}?overview=full&geometries=geojson';
+          'https://router.project-osrm.org/route/v1/driving/${_startPoint.longitude},${_startPoint.latitude};${_destinationPoint.longitude},${_destinationPoint.latitude}?overview=full&geometries=geojson';
       final response = await http.get(
         Uri.parse(url),
-        headers: {'User-Agent': 'Flutter Map Example'},
-      );
+        headers: {'User-Agent': 'Flutter Map Ride Tracker'},
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -127,87 +130,107 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             return LatLng(coord[1].toDouble(), coord[0].toDouble());
           }).toList();
 
-          final distance = route['distance'] / 1000.0;
-          final duration = route['duration'] / 60.0;
+          debugPrint('OSRM Route loaded: ${_routePoints.length} points');
+          debugPrint('First point: ${_routePoints.first}');
+          debugPrint('Last point: ${_routePoints.last}');
 
-          setState(() {
-            _vehiclePosition = _routePoints.first;
-            _routeLoaded = true;
-            _distance = '${distance.toStringAsFixed(1)} km';
-            _estimatedTime = '${duration.round()} min';
-            _totalRouteDistance = distance;
-            _distanceTraveled = 0.0;
-          });
+          final double distance = route['distance'] / 1000.0;
+          final double duration = route['duration'] / 60.0;
 
-          _startVehicleTracking();
-
-          if (_routePoints.isNotEmpty) {
-            Future.delayed(Duration(milliseconds: 500), () {
-              if (mounted) {
-                try {
-                  double minLat = _routePoints
-                      .map((p) => p.latitude)
-                      .reduce(math.min);
-                  double maxLat = _routePoints
-                      .map((p) => p.latitude)
-                      .reduce(math.max);
-                  double minLng = _routePoints
-                      .map((p) => p.latitude)
-                      .reduce(math.min);
-                  double maxLng = _routePoints
-                      .map((p) => p.latitude)
-                      .reduce(math.max);
-                  LatLng center = LatLng(
-                    (minLat + maxLng) / 2,
-                    (minLng + maxLng) / 2,
-                  );
-
-                  _mapController.move(center, 13);
-                } catch (e) {
-                  print(e);
-                }
-              }
+          if (mounted) {
+            setState(() {
+              _vehiclePosition = _routePoints.first;
+              _routeLoaded = true;
+              _distance = '${distance.toStringAsFixed(1)} km';
+              _estimatedTime = '${math.max(1, duration.round())} min';
+              _totalRouteDistance = distance;
+              _distanceTraveled = 0.0;
             });
           }
+
+          _startVehicleTracking();
+          _fitRouteBounds();
+        } else {
+          debugPrint('No routes found in OSRM response, using fallback');
         }
       } else {
-        _fallBackToSimulatedRoute();
+        debugPrint('OSRM returned status ${response.statusCode}, using fallback');
       }
     } catch (e) {
-      print('Error fetching route: $e');
-      _fallBackToSimulatedRoute();
+      debugPrint('OSRM error (using fallback): $e');
     }
   }
 
-  //Simulated route for fallback
+  void _fitRouteBounds() {
+    if (_routePoints.isEmpty) return;
+    _isFollowingVehicle = false; // শুরুতে পুরো পলিলাইন দেখানোর জন্য
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        try {
+          double minLat = _routePoints.map((p) => p.latitude).reduce(math.min);
+          double maxLat = _routePoints.map((p) => p.latitude).reduce(math.max);
+          double minLng = _routePoints.map((p) => p.longitude).reduce(math.min);
+          double maxLng = _routePoints.map((p) => p.longitude).reduce(math.max);
+
+          LatLng center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+
+          _mapController.move(center, 14.5);
+
+          // ২.৫ সেকেন্ড পর আবার গাড়ি ফলো করা শুরু করবে
+          _followTimer?.cancel();
+          _followTimer = Timer(const Duration(milliseconds: 2500), () {
+            if (mounted) {
+              setState(() {
+                _isFollowingVehicle = true;
+              });
+            }
+          });
+        } catch (e) {
+          debugPrint('Map move error: $e');
+        }
+      }
+    });
+  }
+
+  // Simulated route for fallback - creates a visible polyline
   void _fallBackToSimulatedRoute() {
+    // Create a more visible route with more points
     _routePoints = [
       _startPoint,
-      LatLng(37.7799, -122.4194),
-      LatLng(37.7849, -122.4194),
-      LatLng(37.7899, -122.4194),
+      const LatLng(37.7760, -122.4180),
+      const LatLng(37.7770, -122.4170),
+      const LatLng(37.7780, -122.4185),
+      const LatLng(37.7790, -122.4200),
+      const LatLng(37.7800, -122.4190),
+      const LatLng(37.7810, -122.4195),
+      const LatLng(37.7820, -122.4185),
       _destinationPoint,
     ];
 
-    double _totalDistance = 0.0;
+    debugPrint('Fallback route set: ${_routePoints.length} points');
+
+    double totalDistance = 0.0;
     for (int i = 0; i < _routePoints.length - 1; i++) {
-      _totalDistance += _calculateDistanceBetween(
+      totalDistance += _calculateDistanceBetween(
         _routePoints[i],
         _routePoints[i + 1],
       );
     }
 
-    setState(() {
-      _vehiclePosition = _routePoints.first;
-      _routeLoaded = true;
-      _distance = '${_totalDistance.toStringAsFixed(1)} km';
-      _estimatedTime =
-          '${((_totalDistance / _constantSpeed) * 60).round()} min';
-      _totalRouteDistance = _totalDistance;
-      _distanceTraveled = 0.0;
-    });
+    if (mounted) {
+      setState(() {
+        _vehiclePosition = _routePoints.first;
+        _routeLoaded = true;
+        _distance = '${totalDistance.toStringAsFixed(1)} km';
+        _estimatedTime =
+            '${math.max(1, ((totalDistance / _constantSpeed) * 60).round())} min';
+        _totalRouteDistance = totalDistance;
+        _distanceTraveled = 0.0;
+      });
+    }
 
     _startVehicleTracking();
+    _fitRouteBounds();
   }
 
   double _calculateDistanceBetween(LatLng start, LatLng end) {
@@ -269,7 +292,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     double speedPerUpdate = (_constantSpeed / 3600) * 0.033;
-    final mewTotalDistance = totalDistanceSoFar + speedPerUpdate;
+    final double newTotalDistance = totalDistanceSoFar + speedPerUpdate;
 
     double accumulatedDistance = 0.0;
     int newSegmentIndex = 0;
@@ -281,10 +304,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _routePoints[i + 1],
       );
 
-      if (accumulatedDistance + segmentDistance >= mewTotalDistance) {
+      if (accumulatedDistance + segmentDistance >= newTotalDistance) {
         newSegmentIndex = i;
-        double distanceIntoSegment = mewTotalDistance - accumulatedDistance;
-        progressInNewSegment = distanceIntoSegment / segmentDistance;
+        double distanceIntoSegment = newTotalDistance - accumulatedDistance;
+        progressInNewSegment = segmentDistance > 0
+            ? distanceIntoSegment / segmentDistance
+            : 0.0;
         break;
       }
       accumulatedDistance += segmentDistance;
@@ -294,10 +319,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (newSegmentIndex >= _routePoints.length - 1) {
       setState(() {
         _vehiclePosition = _routePoints.last;
-        _vehicleRotation = _calculateBearing(
-          _routePoints[_routePoints.length - 2],
-          _routePoints.last,
-        );
+        if (_routePoints.length >= 2) {
+          _vehicleRotation = _calculateBearing(
+            _routePoints[_routePoints.length - 2],
+            _routePoints.last,
+          );
+        }
       });
 
       _timer?.cancel();
@@ -326,7 +353,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _progress = progressInNewSegment;
       _vehiclePosition = newPosition;
       _vehicleRotation = rotation;
-      _distanceTraveled = mewTotalDistance;
+      _distanceTraveled = newTotalDistance;
       _updateRideDetails();
     });
 
@@ -334,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       try {
         _mapController.move(newPosition, _mapController.camera.zoom);
       } catch (e) {
-        print(e);
+        debugPrint('Camera follow error: $e');
       }
     }
   }
@@ -380,6 +407,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
+  void _showActionMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   void _showRideCompleted() {
     showDialog(
       context: context,
@@ -398,48 +435,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Container(
                 height: 80,
                 width: 80,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.green,
                 ),
                 child: const Icon(
                   Icons.check_circle,
                   color: Colors.white,
-                  size: 4,
+                  size: 48,
                 ),
               ),
-              SizedBox(height: 20),
-              Text(
+              const SizedBox(height: 20),
+              const Text(
                 'Ride Completed!',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
-              SizedBox(height: 10),
+              const SizedBox(height: 10),
               Text(
                 'Thank you for riding with us.',
                 style: TextStyle(fontSize: 16, color: Colors.grey[600]),
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () {
                         Navigator.of(context).pop();
+                        _showActionMessage('Thanks for rating your trip!');
+                        _resetRide();
                       },
                       style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        side: BorderSide(color: Colors.green),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: const BorderSide(color: Colors.green),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: Text(
+                      child: const Text(
                         'Rate Trip',
                         style: TextStyle(color: Colors.green),
                       ),
                     ),
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () {
@@ -447,13 +486,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         _resetRide();
                       },
                       style: ElevatedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: 12),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                         backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: Text('Done'),
+                      child: const Text('Done'),
                     ),
                   ),
                 ],
@@ -486,17 +526,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     required String value,
     Color? iconColor,
   }) {
+    final Color effectiveColor = iconColor ?? Colors.blue;
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: (iconColor ?? Colors.blue).withOpacity(0.1),
+            color: effectiveColor.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, color: iconColor ?? Colors.blue, size: 24),
+          child: Icon(icon, color: effectiveColor, size: 24),
         ),
-        SizedBox(height: 8),
+        const SizedBox(height: 8),
         Text(
           label,
           style: TextStyle(
@@ -505,7 +546,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             fontWeight: FontWeight.w500,
           ),
         ),
-        SizedBox(height: 4),
+        const SizedBox(height: 4),
         Text(
           value,
           style: TextStyle(
@@ -527,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           children: [
             if (_routeLoaded)
               Container(
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(24),
                     topRight: Radius.circular(24),
@@ -548,15 +589,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   children: [
                     TileLayer(
                       urlTemplate:
-                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.ride_app',
                     ),
                     PolylineLayer(
                       polylines: [
                         Polyline(
-                          points: _routePoints,
+                          points: _routePoints.isNotEmpty ? _routePoints : [_vehiclePosition],
                           color: Colors.blue,
-                          borderStrokeWidth: 2.0,
                           strokeWidth: 6.0,
+                          borderStrokeWidth: 2.0,
                           borderColor: Colors.white,
                         ),
                       ],
@@ -564,60 +606,85 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     MarkerLayer(
                       markers: [
                         Marker(
+                          width: 40,
+                          height: 40,
                           point: _startPoint,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              borderRadius: BorderRadius.circular(8),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.2),
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
+                          child: AnimatedBuilder(
+                            animation: _pulseController,
+                            builder: (context, child) {
+                              return Transform.scale(
+                                scale: 1.0 + (_pulseController.value * 0.15),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.green.withOpacity(0.35),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.my_location,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
                                 ),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.location_on,
-                              color: Colors.white,
-                              size: 20,
-                            ),
+                              );
+                            },
                           ),
                         ),
-
                         Marker(
+                          width: 40,
+                          height: 40,
                           point: _destinationPoint,
                           child: Container(
                             decoration: BoxDecoration(
                               color: Colors.red,
-                              borderRadius: BorderRadius.circular(8),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.red.withOpacity(0.2),
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
+                                  color: Colors.red.withOpacity(0.35),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
                                 ),
                               ],
                             ),
-                            child: Icon(
+                            child: const Icon(
                               Icons.location_on,
                               color: Colors.white,
-                              size: 20,
+                              size: 22,
                             ),
                           ),
                         ),
-
                         Marker(
                           width: 60,
                           height: 60,
                           point: _vehiclePosition,
                           child: Transform.rotate(
                             angle: (_vehicleRotation - 180) * math.pi / 180,
-
                             child: Image.asset(
                               'assets/white_car.png',
-                              // width: 40,
-                              // height: 40,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  decoration: const BoxDecoration(
+                                    color: Colors.blueAccent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.directions_car,
+                                    color: Colors.white,
+                                    size: 28,
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ),
@@ -636,64 +703,73 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                 ),
                 child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        padding: EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 4,
-                              offset: Offset(0, 2),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.15),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 3,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.blue,
                             ),
-                          ],
-                        ),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.blue,
                           ),
                         ),
-                      ),
-                      SizedBox(height: 24),
-                      Text(
-                        'Fetching Route...',
-                        style: TextStyle(
-                          fontSize: 20,
-                          color: Colors.grey[800],
-                          fontWeight: FontWeight.bold,
+                        const SizedBox(height: 24),
+                        Text(
+                          'Fetching Route...',
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: Colors.grey[800],
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Please wait while we calculate the best route for your ride.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                        Text(
+                          'Please wait while we calculate the best route for your ride.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
 
             if (_routeLoaded)
               Container(
-                height: 80,
-                margin: EdgeInsets.all(8),
-                padding: EdgeInsets.all(16),
+                height: 82,
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.1),
-                      blurRadius: 4,
-                      offset: Offset(0, 2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
                   ],
                 ),
@@ -706,15 +782,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         color: Colors.green[50],
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(
+                      child: const Icon(
                         Icons.directions_car,
                         color: Colors.green,
                         size: 28,
                       ),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
@@ -725,7 +802,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               color: Colors.grey[800],
                             ),
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Row(
                             children: [
                               Icon(
@@ -733,7 +810,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 size: 14,
                                 color: Colors.grey[600],
                               ),
-                              SizedBox(width: 4),
+                              const SizedBox(width: 4),
                               Text(
                                 'Arrives in $_estimatedTime',
                                 style: TextStyle(
@@ -757,24 +834,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 right: 0,
                 child: SlideTransition(
                   position: Tween<Offset>(
-                    begin: Offset(0, 1),
-                    end: Offset(0, 0),
+                    begin: const Offset(0, 1),
+                    end: Offset.zero,
                   ).animate(_bottomSheetController),
                   child: Container(
+                    padding: const EdgeInsets.all(16),
                     constraints: BoxConstraints(
                       minHeight: 250,
                       maxHeight: MediaQuery.of(context).size.height * 0.7,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.vertical(
+                      borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(24),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          offset: Offset(0, -2),
+                          color: Colors.black.withOpacity(0.12),
+                          blurRadius: 10,
+                          offset: const Offset(0, -2),
                         ),
                       ],
                     ),
@@ -782,7 +860,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
-                          padding: EdgeInsets.all(16),
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             color: Colors.grey[50],
                             borderRadius: BorderRadius.circular(16),
@@ -805,17 +892,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                     BoxShadow(
                                       color: Colors.blue.withOpacity(0.3),
                                       blurRadius: 8,
-                                      offset: Offset(0, 4),
+                                      offset: const Offset(0, 4),
                                     ),
                                   ],
                                 ),
-                                child: Icon(
+                                child: const Icon(
                                   Icons.person,
                                   color: Colors.white,
                                   size: 30,
                                 ),
                               ),
-                              SizedBox(width: 16),
+                              const SizedBox(width: 14),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -828,11 +915,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                         color: Colors.grey[800],
                                       ),
                                     ),
-                                    SizedBox(height: 4),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _carModel,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
                                     Row(
                                       children: [
                                         Container(
-                                          padding: EdgeInsets.symmetric(
+                                          padding: const EdgeInsets.symmetric(
                                             vertical: 2,
                                             horizontal: 8,
                                           ),
@@ -850,9 +945,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                                 color: Colors.green[700],
                                                 size: 14,
                                               ),
-                                              SizedBox(width: 4),
+                                              const SizedBox(width: 4),
                                               Text(
-                                                _rating.toString(),
+                                                _rating,
                                                 style: TextStyle(
                                                   fontSize: 12,
                                                   color: Colors.green[700],
@@ -862,12 +957,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                             ],
                                           ),
                                         ),
-                                        SizedBox(height: 12),
+                                        const SizedBox(width: 10),
                                         Text(
-                                          _plateNUmber,
+                                          _plateNumber,
                                           style: TextStyle(
-                                            fontSize: 14,
-                                            color: Colors.grey[600],
+                                            fontSize: 13,
+                                            color: Colors.grey[700],
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -876,7 +971,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                   ],
                                 ),
                               ),
-
                               Row(
                                 children: [
                                   Container(
@@ -885,7 +979,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                       shape: BoxShape.circle,
                                     ),
                                     child: IconButton(
-                                      onPressed: () {},
+                                      onPressed: () => _showActionMessage(
+                                        'Calling $_driverName...',
+                                      ),
                                       icon: Icon(
                                         Icons.phone,
                                         color: Colors.green[700],
@@ -893,14 +989,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                       ),
                                     ),
                                   ),
-                                  SizedBox(width: 8),
+                                  const SizedBox(width: 8),
                                   Container(
                                     decoration: BoxDecoration(
                                       color: Colors.blue[50],
                                       shape: BoxShape.circle,
                                     ),
                                     child: IconButton(
-                                      onPressed: () {},
+                                      onPressed: () => _showActionMessage(
+                                        'Opening chat with $_driverName...',
+                                      ),
                                       icon: Icon(
                                         Icons.message,
                                         color: Colors.blue[700],
@@ -913,45 +1011,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             ],
                           ),
                         ),
-
-                        SizedBox(height: 16),
-
+                        const SizedBox(height: 16),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
                             _buildRideDetails(
-                              icon: Icons.directions_car,
+                              icon: Icons.access_time_filled,
                               label: 'Duration',
                               value: _estimatedTime,
-                              iconColor: Colors.blue[100],
+                              iconColor: Colors.blue,
                             ),
                             _buildRideDetails(
-                              icon: Icons.directions_car,
+                              icon: Icons.route,
                               label: 'Distance',
                               value: _distance,
-                              iconColor: Colors.orange[100],
+                              iconColor: Colors.orange,
                             ),
                             _buildRideDetails(
                               icon: Icons.directions_car,
                               label: 'Vehicle',
                               value: _vehicleType,
-                              iconColor: Colors.purple[100],
+                              iconColor: Colors.purple,
                             ),
                           ],
                         ),
-                        SizedBox(height: 16),
+                        const SizedBox(height: 16),
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () {},
-                                label: Text(
-                                  "Share",
+                                onPressed: () => _showActionMessage(
+                                  'Ride link copied to clipboard!',
+                                ),
+                                label: const Text(
+                                  'Share',
                                   style: TextStyle(color: Colors.blue),
                                 ),
-                                icon: Icon(Icons.share, color: Colors.blue),
+                                icon: const Icon(
+                                  Icons.share,
+                                  color: Colors.blue,
+                                ),
                                 style: OutlinedButton.styleFrom(
-                                  padding: EdgeInsets.symmetric(vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                   side: BorderSide(color: Colors.grey[300]!),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
@@ -959,17 +1062,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 ),
                               ),
                             ),
-                            SizedBox(width: 12),
+                            const SizedBox(width: 12),
                             Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {},
-                                label: Text("Emergency"),
-                                icon: Icon(Icons.warning),
-                                style: OutlinedButton.styleFrom(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showActionMessage(
+                                  'Emergency alert triggered!',
+                                ),
+                                label: const Text('Emergency'),
+                                icon: const Icon(Icons.warning),
+                                style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.redAccent,
                                   foregroundColor: Colors.white,
-                                  padding: EdgeInsets.symmetric(vertical: 12),
-                                  side: BorderSide(color: Colors.grey[300]!),
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -986,7 +1093,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
             if (_routeLoaded)
               Positioned(
-                top: 100,
+                top: 108,
                 right: 15,
                 child: Column(
                   children: [
@@ -996,13 +1103,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 4,
-                            offset: Offset(0, 2),
+                            color: Colors.black.withOpacity(0.12),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
                       child: FloatingActionButton(
+                        heroTag: 'follow_btn',
                         mini: true,
                         onPressed: () {
                           setState(() {
@@ -1013,7 +1121,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             try {
                               _mapController.move(_vehiclePosition, 16);
                             } catch (e) {
-                              print(e);
+                              debugPrint('Map move error: $e');
                             }
                           }
                         },
@@ -1027,20 +1135,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 4,
-                            offset: Offset(0, 2),
+                            color: Colors.black.withOpacity(0.12),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
                       child: FloatingActionButton(
+                        heroTag: 'zoom_out_btn',
                         mini: true,
                         onPressed: () {
                           if (_routePoints.isNotEmpty) {
@@ -1052,22 +1161,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                   .map((p) => p.latitude)
                                   .reduce(math.max);
                               double minLng = _routePoints
-                                  .map((p) => p.latitude)
+                                  .map((p) => p.longitude)
                                   .reduce(math.min);
                               double maxLng = _routePoints
-                                  .map((p) => p.latitude)
+                                  .map((p) => p.longitude)
                                   .reduce(math.max);
 
-                              LatLng Center = LatLng(
+                              LatLng center = LatLng(
                                 (minLat + maxLat) / 2,
                                 (minLng + maxLng) / 2,
                               );
 
-                              _mapController.move(Center, 13);
-
+                              _mapController.move(center, 15.0);
                               _stopFollowingTemporarily();
                             } catch (e) {
-                              print(e);
+                              debugPrint('Zoom out error: $e');
                             }
                           }
                         },
