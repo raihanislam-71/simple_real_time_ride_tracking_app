@@ -1,0 +1,11 @@
+﻿Analyzing simple_real_time_ride_tracking_app...                 
+
+  error - The name 'RideTrackingScreen' isn't a class. Try correcting the name to match an existing class - lib\main.dart:21:19 - creation_with_non_type
+
+flutter : 1 issue found. (ran in 5.2s)
+At line:1 char:1
++ flutter analyze > analyze_out.txt 2>&1; echo DONE
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (1 issue found. (ran in 5.2s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
