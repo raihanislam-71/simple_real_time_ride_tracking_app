@@ -1,0 +1,23 @@
+﻿Resolving dependencies...
+Downloading packages...
+  cupertino_icons 1.0.9 (2.0.0 available)
+  dbus 0.7.15 (0.8.1 available)
+  gsettings 0.2.8 (0.2.9 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  test_api 0.7.14 (0.7.15 available)
+  vector_math 2.4.3 (2.4.4 available)
+Got dependencies!
+6 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing simple_real_time_ride_tracking_app...                 
+
+warning - Unused import: 'package:simple_real_time_ride_tracking_app/widgets/ride_tracking_screen.dart'. Try removing the import directive - lib\main.dart:2:8 - unused_import
+  error - The method 'RideTrackingScreen' isn't defined for the type 'RideTrackingApp'. Try correcting the name to the name of an existing method, or defining a method named 'RideTrackingScreen' - lib\main.dart:21:13 - undefined_method
+
+flutter : 2 issues found. (ran in 3.2s)
+At line:1 char:1
++ flutter analyze > analyze_out3.txt 2>&1; echo READY
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2 issues found. (ran in 3.2s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

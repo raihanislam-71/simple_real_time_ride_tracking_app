@@ -1,0 +1,12 @@
+﻿Analyzing simple_real_time_ride_tracking_app...                 
+
+warning - Unused import: 'package:simple_real_time_ride_tracking_app/widgets/ride_tracking_screen.dart'. Try removing the import directive - lib\main.dart:2:8 - unused_import
+  error - The method 'RideTrackingScreen' isn't defined for the type 'RideTrackingApp'. Try correcting the name to the name of an existing method, or defining a method named 'RideTrackingScreen' - lib\main.dart:21:13 - undefined_method
+
+flutter : 2 issues found. (ran in 5.0s)
+At line:1 char:1
++ flutter analyze > analyze_out2.txt 2>&1; echo DONE
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2 issues found. (ran in 5.0s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
