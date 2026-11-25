@@ -39,20 +39,23 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
 
-  // Example locations for start and end points (San Francisco)
-  final LatLng _startPoint = const LatLng(37.7749, -122.4194);
-  final LatLng _destinationPoint = const LatLng(37.7839, -122.4194);
+  // Fixed rider location and nearby destination in Dhaka
+  final LatLng _startPoint = const LatLng(23.837507, 90.369993);
+  final LatLng _destinationPoint = const LatLng(23.828507, 90.368000);
 
   List<LatLng> _routePoints = [];
   bool _routeLoaded = false;
 
-  LatLng _vehiclePosition = const LatLng(37.7749, -122.4194);
+  LatLng _vehiclePosition = const LatLng(23.837507, 90.369993);
   double _vehicleRotation = 0.0;
   Timer? _timer;
   int _currentRouteIndex = 0;
   double _progress = 0.0;
   bool _isFollowingVehicle = true;
   Timer? _followTimer;
+  bool _showArrivalNotification = false;
+  bool _isRideCancelled = false;
+  Timer? _notificationTimer;
 
   final double _constantSpeed = 40.0; // km/h
   double _totalRouteDistance = 0.0;
@@ -100,6 +103,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void dispose() {
     _timer?.cancel();
     _followTimer?.cancel();
+    _notificationTimer?.cancel();
     _vehicleAnimationController.dispose();
     _bottomSheetController.dispose();
     _pulseController.dispose();
@@ -194,18 +198,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // Simulated route for fallback - creates a visible polyline
   void _fallBackToSimulatedRoute() {
-    // Create a more visible route with more points
-    _routePoints = [
-      _startPoint,
-      const LatLng(37.7760, -122.4180),
-      const LatLng(37.7770, -122.4170),
-      const LatLng(37.7780, -122.4185),
-      const LatLng(37.7790, -122.4200),
-      const LatLng(37.7800, -122.4190),
-      const LatLng(37.7810, -122.4195),
-      const LatLng(37.7820, -122.4185),
-      _destinationPoint,
-    ];
+    // Interpolate points between _startPoint and _destinationPoint
+    _routePoints = List.generate(9, (i) {
+      final t = i / 8.0;
+      return LatLng(
+        _startPoint.latitude +
+            t * (_destinationPoint.latitude - _startPoint.latitude),
+        _startPoint.longitude +
+            t * (_destinationPoint.longitude - _startPoint.longitude),
+      );
+    });
 
     debugPrint('Fallback route set: ${_routePoints.length} points');
 
@@ -417,7 +419,120 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  void _triggerArrivalInAppNotification() {
+    if (!mounted) return;
+    setState(() {
+      _showArrivalNotification = true;
+    });
+    _notificationTimer?.cancel();
+    _notificationTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted) {
+        setState(() {
+          _showArrivalNotification = false;
+        });
+      }
+    });
+  }
+
+  void _showCancelConfirmationDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.cancel_outlined,
+                color: Colors.redAccent,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Cancel Ride?',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to close and cancel this ride?',
+          style: TextStyle(fontSize: 15, color: Colors.black87),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: BorderSide(color: Colors.grey[300]!),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'No, Keep Ride',
+                    style: TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                    _timer?.cancel();
+                    _followTimer?.cancel();
+                    setState(() {
+                      _isRideCancelled = true;
+                      _isFollowingVehicle = false;
+                    });
+                    _showActionMessage('Ride has been cancelled.');
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Yes, Cancel',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showRideCompleted() {
+    _triggerArrivalInAppNotification();
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted || _isRideCancelled) return;
+      _openRideCompletedDialog();
+    });
+  }
+
+  void _openRideCompletedDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -506,6 +621,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _resetRide() {
+    _notificationTimer?.cancel();
     setState(() {
       _currentRouteIndex = 0;
       _progress = 0.0;
@@ -515,6 +631,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _vehicleRotation = 0.0;
       _distanceTraveled = 0.0;
       _isFollowingVehicle = true;
+      _showArrivalNotification = false;
+      _isRideCancelled = false;
     });
 
     _fetchRealRoute();
@@ -671,7 +789,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           child: Transform.rotate(
                             angle: (_vehicleRotation - 180) * math.pi / 180,
                             child: Image.asset(
-                              'assets/white_car.png',
+                              'assets/red_car.png',
                               errorBuilder: (context, error, stackTrace) {
                                 return Container(
                                   decoration: const BoxDecoration(
@@ -1085,6 +1203,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: _isRideCancelled
+                              ? ElevatedButton.icon(
+                                  onPressed: _resetRide,
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text(
+                                    'Ride Cancelled • Restart Ride',
+                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                )
+                              : OutlinedButton.icon(
+                                  onPressed: _showCancelConfirmationDialog,
+                                  icon: const Icon(
+                                    Icons.cancel_outlined,
+                                    color: Colors.redAccent,
+                                  ),
+                                  label: const Text(
+                                    'Cancel Ride',
+                                    style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    side: BorderSide(
+                                      color: Colors.redAccent.withOpacity(0.4),
+                                    ),
+                                    backgroundColor:
+                                        Colors.redAccent.withOpacity(0.05),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                        ),
                       ],
                     ),
                   ),
@@ -1191,6 +1360,129 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ],
                 ),
               ),
+
+            // In-App Arrival Notification Banner
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeOutBack,
+              top: _showArrivalNotification ? 12 : -150,
+              left: 12,
+              right: 12,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111827),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Colors.greenAccent.withOpacity(0.5),
+                      width: 1.2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.28),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF10B981), Color(0xFF059669)],
+                          ),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF10B981).withOpacity(0.4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.notifications_active_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'Rider Arrived!',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.25),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'NOW',
+                                    style: TextStyle(
+                                      color: Colors.greenAccent,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '$_driverName ($_carModel • $_plateNumber) has arrived at your location.',
+                              style: TextStyle(
+                                color: Colors.grey[300],
+                                fontSize: 12.5,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _showArrivalNotification = false;
+                          });
+                        },
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: Colors.grey[400],
+                          size: 20,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
