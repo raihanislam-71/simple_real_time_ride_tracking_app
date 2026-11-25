@@ -13,6 +13,7 @@ class TripInfoSheet extends StatelessWidget {
   final VoidCallback? onMessage;
   final VoidCallback? onShare;
   final VoidCallback? onEmergency;
+  final VoidCallback? onCancel;
 
   const TripInfoSheet({
     super.key,
@@ -26,6 +27,7 @@ class TripInfoSheet extends StatelessWidget {
     this.onMessage,
     this.onShare,
     this.onEmergency,
+    this.onCancel,
   });
 
   String get _formattedDuration {
@@ -324,6 +326,35 @@ class TripInfoSheet extends StatelessWidget {
               ),
             ],
           ),
+          if (onCancel != null) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: OutlinedButton.icon(
+                onPressed: onCancel,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFDC2626),
+                  backgroundColor:
+                      const Color(0xFFDC2626).withValues(alpha: 0.05),
+                  side: BorderSide(
+                    color: const Color(0xFFDC2626).withValues(alpha: 0.35),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                icon: const Icon(Icons.cancel_outlined, size: 18),
+                label: const Text(
+                  'Cancel Ride',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
