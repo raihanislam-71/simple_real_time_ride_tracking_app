@@ -5,7 +5,7 @@ class AppConstants {
   AppConstants._();
 
   /// Fixed rider (driver) starting location — Dhaka, Bangladesh.
-  static const LatLng riderStart = LatLng(23.836872, 90.363446);
+  static const LatLng riderStart = LatLng(23.837507, 90.369993);
 
   /// OpenStreetMap tile layer.
   static const String osmTileUrl =
