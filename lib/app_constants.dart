@@ -22,7 +22,7 @@ class AppConstants {
   static const String nominatimUserAgent = 'RideTrackingApp/1.0';
 
   /// Rider animation speed along the route.
-  static const double riderSpeedKmh = 25.0;
+  static const double riderSpeedKmh = 80.0;
   static const Duration animationInterval = Duration(milliseconds: 33);
 
   /// Map zoom levels.
