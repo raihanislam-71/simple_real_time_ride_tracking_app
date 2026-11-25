@@ -41,7 +41,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // Fixed rider location and nearby destination in Dhaka
   final LatLng _startPoint = const LatLng(23.837507, 90.369993);
-  final LatLng _destinationPoint = const LatLng(23.828507, 90.368000);
+  LatLng _destinationPoint = const LatLng(23.828507, 90.368000);
+  String _destinationName = 'Select destination';
 
   List<LatLng> _routePoints = [];
   bool _routeLoaded = false;
@@ -618,6 +619,52 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  void _selectNewDestination(LatLng point, String name) {
+    _timer?.cancel();
+    _followTimer?.cancel();
+    _notificationTimer?.cancel();
+    setState(() {
+      _destinationPoint = point;
+      _destinationName = name;
+      _currentRouteIndex = 0;
+      _progress = 0.0;
+      _vehiclePosition = _startPoint;
+      _vehicleRotation = 0.0;
+      _distanceTraveled = 0.0;
+      _isFollowingVehicle = true;
+      _showArrivalNotification = false;
+      _isRideCancelled = false;
+    });
+    _fetchRealRoute();
+  }
+
+  Future<void> _openPickOnMap() async {
+    final LatLng? picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => PickOnMapScreen(initialLocation: _destinationPoint),
+      ),
+    );
+    if (picked != null && mounted) {
+      _selectNewDestination(
+        picked,
+        'Pinned (${picked.latitude.toStringAsFixed(4)}, ${picked.longitude.toStringAsFixed(4)})',
+      );
+    }
+  }
+
+  Future<void> _openSearchLocationSheet() async {
+    final result = await showModalBottomSheet<_SearchSelection>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _LocationSearchModal(onPickOnMap: _openPickOnMap),
+    );
+    if (result != null && mounted) {
+      _selectNewDestination(result.point, result.name);
+    }
   }
 
   void _resetRide() {
@@ -1262,6 +1309,93 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
             if (_routeLoaded)
               Positioned(
+                top: 104,
+                left: 12,
+                right: 72,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        elevation: 3,
+                        shadowColor: Colors.black26,
+                        child: InkWell(
+                          onTap: _openSearchLocationSheet,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.search,
+                                  color: Colors.blue,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _destinationName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey[800],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Material(
+                      color: Colors.blue,
+                      borderRadius: BorderRadius.circular(14),
+                      elevation: 3,
+                      shadowColor: Colors.black26,
+                      child: InkWell(
+                        onTap: _openPickOnMap,
+                        borderRadius: BorderRadius.circular(14),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.map_outlined,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              SizedBox(width: 5),
+                              Text(
+                                'Pick on Map',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            if (_routeLoaded)
+              Positioned(
                 top: 108,
                 right: 15,
                 child: Column(
@@ -1485,6 +1619,357 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SearchSelection {
+  final LatLng point;
+  final String name;
+  const _SearchSelection(this.point, this.name);
+}
+
+class _LocationSearchModal extends StatefulWidget {
+  final Future<void> Function() onPickOnMap;
+  const _LocationSearchModal({required this.onPickOnMap});
+
+  @override
+  State<_LocationSearchModal> createState() => _LocationSearchModalState();
+}
+
+class _LocationSearchModalState extends State<_LocationSearchModal> {
+  final TextEditingController _controller = TextEditingController();
+  List<Map<String, dynamic>> _results = [];
+  bool _isSearching = false;
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String value) {
+    _debounce?.cancel();
+    if (value.trim().isEmpty) {
+      setState(() => _results = []);
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      _searchNominatim(value.trim());
+    });
+  }
+
+  Future<void> _searchNominatim(String query) async {
+    setState(() => _isSearching = true);
+    try {
+      final uri = Uri.parse('https://nominatim.openstreetmap.org/search')
+          .replace(queryParameters: {
+        'format': 'json',
+        'q': query,
+        'limit': '8',
+        'accept-language': 'en',
+      });
+      final response = await http.get(
+        uri,
+        headers: {'User-Agent': 'Flutter Map Ride Tracker'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 && mounted) {
+        final list = jsonDecode(response.body) as List;
+        setState(() {
+          _results = list.cast<Map<String, dynamic>>();
+          _isSearching = false;
+        });
+        return;
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _isSearching = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (_, scrollController) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Search Location',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    widget.onPickOnMap();
+                  },
+                  icon: const Icon(Icons.map_outlined, size: 18),
+                  label: const Text('Pick on Map'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              onChanged: _onQueryChanged,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (v) => _searchNominatim(v.trim()),
+              decoration: InputDecoration(
+                hintText: 'Search destination (e.g. Banani, Dhaka)',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _isSearching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: _results.isEmpty
+                  ? Center(
+                      child: Text(
+                        _isSearching
+                            ? 'Searching...'
+                            : 'Type a place name or tap "Pick on Map"',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: _results.length,
+                      itemBuilder: (_, index) {
+                        final item = _results[index];
+                        final name = item['display_name']?.toString() ?? 'Place';
+                        final lat = double.tryParse(item['lat']?.toString() ?? '');
+                        final lon = double.tryParse(item['lon']?.toString() ?? '');
+                        if (lat == null || lon == null) {
+                          return const SizedBox.shrink();
+                        }
+                        return ListTile(
+                          leading: const Icon(
+                            Icons.location_on,
+                            color: Colors.blue,
+                          ),
+                          title: Text(
+                            name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => Navigator.of(context).pop(
+                            _SearchSelection(LatLng(lat, lon), name),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PickOnMapScreen extends StatefulWidget {
+  final LatLng initialLocation;
+  const PickOnMapScreen({super.key, required this.initialLocation});
+
+  @override
+  State<PickOnMapScreen> createState() => _PickOnMapScreenState();
+}
+
+class _PickOnMapScreenState extends State<PickOnMapScreen> {
+  final MapController _pickMapController = MapController();
+  late LatLng _pickedLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pickedLocation = widget.initialLocation;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pick Destination on Map'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 1,
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _pickMapController,
+            options: MapOptions(
+              initialCenter: _pickedLocation,
+              initialZoom: 15.5,
+              onTap: (_, point) {
+                setState(() {
+                  _pickedLocation = point;
+                });
+                _pickMapController.move(point, _pickMapController.camera.zoom);
+              },
+              onPositionChanged: (camera, hasGesture) {
+                if (hasGesture) {
+                  setState(() {
+                    _pickedLocation = camera.center;
+                  });
+                }
+              },
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.ride_app',
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    width: 48,
+                    height: 48,
+                    point: _pickedLocation,
+                    child: const Icon(
+                      Icons.location_on,
+                      color: Colors.red,
+                      size: 44,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Positioned(
+            top: 12,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.12),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.touch_app, color: Colors.blue, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Move map or tap anywhere to place marker',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 20,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Selected Coordinates',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_pickedLocation.latitude.toStringAsFixed(6)}, ${_pickedLocation.longitude.toStringAsFixed(6)}',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.of(context).pop(_pickedLocation),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: const Text(
+                        'Confirm Location',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
